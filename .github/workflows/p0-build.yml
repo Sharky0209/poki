@@ -1,0 +1,57 @@
+name: P0 Build (fork baseline)
+
+on:
+  push:
+    branches: [p0-build]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - id: build
+        uses: ./.github/actions/build-ipa
+        with:
+          editions: external
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Poki-unsigned
+          path: out/
+          if-no-files-found: error
+      - name: Publish IPA to build-output branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/publish && cp -R out/. /tmp/publish/
+          {
+            echo "source_sha=${{ github.sha }}"
+            echo "run_id=${{ github.run_id }}"
+            echo "run_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            date -u +"built_at=%Y-%m-%dT%H:%M:%SZ"
+          } > /tmp/publish/build-info.txt
+          cd /tmp/publish
+          git init -b build-output
+          git config user.name "p0-build"
+          git config user.email "p0-build@localhost"
+          git add -A
+          git commit -m "P0 unsigned IPA from ${{ github.sha }}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" build-output
+      - if: steps.build.outputs.rust-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            native/launcher/target
+          key: ${{ steps.build.outputs.rust-key }}
+      - uses: actions/cache/save@v4
+        with:
+          path: |
+            build/app-external
+            build/app-local
+            ~/Library/Developer/Xcode/DerivedData/ModuleCache.noindex
+          key: ipa-fast-${{ github.sha }}
